@@ -16,6 +16,8 @@ use crate::context::ConnectionStatus;
 use crate::context::Context;
 use crate::event::Event;
 use crate::event_handler::EventHandler;
+use crate::message::GenericIrcCommand;
+use crate::message::GenericIrcCommandType;
 use crate::message::IrcCommand;
 use crate::message::IrcMessage;
 
@@ -29,11 +31,21 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-    pub fn new<A: ToSocketAddrs>(server: A, nickname: String, username: Option<String>, realname: Option<String>) -> Result<Self, std::io::Error> {
+    pub fn new<A: ToSocketAddrs>(
+        server: A,
+        nickname: String,
+        username: Option<String>,
+        realname: Option<String>,
+    ) -> Result<Self, std::io::Error> {
         Ok(Self {
             server: match server.to_socket_addrs()?.next() {
                 Some(addr) => addr,
-                None => return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "Could not resolve server address")),
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AddrNotAvailable,
+                        "Could not resolve server address",
+                    ))
+                }
             },
             nickname: nickname.clone(),
             username: username.unwrap_or(nickname.clone()),
@@ -108,7 +120,12 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn builder<A: ToSocketAddrs>(server: A, nickname: String, username: Option<String>, realname: Option<String>) -> Result<ClientBuilder, std::io::Error> {
+    pub fn builder<A: ToSocketAddrs>(
+        server: A,
+        nickname: String,
+        username: Option<String>,
+        realname: Option<String>,
+    ) -> Result<ClientBuilder, std::io::Error> {
         ClientBuilder::new(server, nickname, username, realname)
     }
 
@@ -117,7 +134,7 @@ impl Client {
 
         let (receive, send) = connection.into_split();
         self.send = Arc::new(Mutex::new(Some(send)));
-        
+
         {
             let username = self.username.clone();
 
@@ -137,10 +154,13 @@ impl Client {
                 let status = status.lock().await;
                 let motd = motd.lock().await;
 
-                event_handler.on_event(Arc::new(Context {
-                    status: Arc::new(status.clone()),
-                    motd: Arc::new(motd.clone()),
-                }), Event::StatusChange);
+                event_handler.on_event(
+                    Arc::new(Context {
+                        status: Arc::new(status.clone()),
+                        motd: Arc::new(motd.clone()),
+                    }),
+                    Event::StatusChange,
+                );
             }
 
             tokio::spawn(async move {
@@ -150,7 +170,7 @@ impl Client {
                 loop {
                     let mut line = String::new();
                     reader.read_line(&mut line).await.unwrap();
-                    
+
                     let message = IrcMessage::try_from(line.as_str()).unwrap();
 
                     let events = match message.clone().command {
@@ -161,10 +181,10 @@ impl Client {
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::ErrorMsg(message) => {
                             vec![Event::ErrorMsg(message)]
-                        },
+                        }
                         IrcCommand::RplWelcome(target, message) => {
                             if target == username.as_str() {
                                 let mut status = status.lock().await;
@@ -174,22 +194,22 @@ impl Client {
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplYourHost(target, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(message)]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplCreated(target, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(message)]
                             } else {
                                 vec![]
                             }
-                        },
-                        IrcCommand::RplMyInfo{
+                        }
+                        IrcCommand::RplMyInfo {
                             client,
                             server_name,
                             server_version,
@@ -207,9 +227,10 @@ impl Client {
                                 *client_server_version = server_version.clone();
                                 *client_umodes = umodes.clone();
                                 *client_cmodes = cmodes.clone();
-                                
+
                                 if let Some(cmodes_params) = cmodes_params.clone() {
-                                    let mut client_cmodes_params = client_cmodes_params.lock().await;
+                                    let mut client_cmodes_params =
+                                        client_cmodes_params.lock().await;
                                     *client_cmodes_params = cmodes_params.clone();
                                 }
 
@@ -218,63 +239,79 @@ impl Client {
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplISupport(target, caps, message) => {
                             if target == username.as_str() {
-                                vec![Event::WelcomeMsg(format!("{} {}", caps.join(", "), message))]
+                                vec![Event::WelcomeMsg(format!(
+                                    "{} {}",
+                                    caps.join(", "),
+                                    message
+                                ))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLUserClient(target, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(format!("{}", message))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLUserOp(target, ops, message) => {
                             if target == username.as_str() {
-                                vec![Event::WelcomeMsg(format!("{} {}", ops.to_string(), message))]
+                                vec![Event::WelcomeMsg(format!(
+                                    "{} {}",
+                                    ops.to_string(),
+                                    message
+                                ))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLUserUnknown(target, connections, message) => {
                             if target == username.as_str() {
-                                vec![Event::WelcomeMsg(format!("{} {}", connections.to_string(), message))]
+                                vec![Event::WelcomeMsg(format!(
+                                    "{} {}",
+                                    connections.to_string(),
+                                    message
+                                ))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLUserChannels(target, channels, message) => {
                             if target == username.as_str() {
-                                vec![Event::WelcomeMsg(format!("{} {}", channels.to_string(), message))]
+                                vec![Event::WelcomeMsg(format!(
+                                    "{} {}",
+                                    channels.to_string(),
+                                    message
+                                ))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLUserMe(target, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(format!("{}", message))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplLocalUsers(target, _users, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(format!("{}", message))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplGlobalUsers(target, _users, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(format!("{}", message))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplMotdStart(target, message) => {
                             if target == username.as_str() {
                                 let mut motd = motd.lock().await;
@@ -290,7 +327,7 @@ impl Client {
                             }
 
                             vec![]
-                        },
+                        }
                         IrcCommand::RplMotd(target, message) => {
                             if target == username.as_str() {
                                 let mut motd = motd.lock().await;
@@ -307,7 +344,7 @@ impl Client {
                             }
 
                             vec![]
-                        },
+                        }
                         IrcCommand::RplEndOfMotd(target, message) => {
                             if target == username.as_str() {
                                 let mut motd = motd.lock().await;
@@ -325,14 +362,14 @@ impl Client {
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::RplHostHidden(target, host, message) => {
                             if target == username.as_str() {
                                 vec![Event::WelcomeMsg(format!("{} {}", host, message))]
                             } else {
                                 vec![]
                             }
-                        },
+                        }
                         IrcCommand::Ping(_) => vec![],
                         _ => {
                             #[cfg(debug_assertions)]
@@ -341,7 +378,7 @@ impl Client {
                             }
 
                             vec![Event::UnhandledMessage(message.clone())]
-                        },
+                        }
                     };
 
                     let context = Arc::new(Context {
@@ -361,31 +398,102 @@ impl Client {
 
                     match message.command {
                         IrcCommand::Ping(message) => {
-                            send.lock().await.as_mut().unwrap().write(String::try_from(IrcMessage{
-                                tags: vec![],
-                                prefix: None,
-                                command: IrcCommand::Pong(message),
-                        }).unwrap().as_bytes()).await.unwrap();
-                        },
-                        _ => {},
+                            send.lock()
+                                .await
+                                .as_mut()
+                                .unwrap()
+                                .write(
+                                    String::try_from(IrcMessage {
+                                        tags: vec![],
+                                        prefix: None,
+                                        command: IrcCommand::Pong(message),
+                                    })
+                                    .unwrap()
+                                    .as_bytes(),
+                                )
+                                .await
+                                .unwrap();
+                        }
+                        _ => {}
                     }
-                };
+                }
             });
         }
-        
-        self.send.lock().await.as_mut().unwrap().write(String::try_from(IrcMessage{
-            tags: vec![],
-            prefix: None,
-            command: IrcCommand::Nick(self.nickname.to_string()),
-        }).unwrap().as_bytes()).await?;
-        self.send.lock().await.as_mut().unwrap().write(String::try_from(IrcMessage{
-            tags: vec![],
-            prefix: None,
-            command: IrcCommand::User(self.username.to_string(), self.realname.to_string()),
-        }).unwrap().as_bytes()).await?;
+
+        self.send
+            .lock()
+            .await
+            .as_mut()
+            .unwrap()
+            .write(
+                String::try_from(IrcMessage {
+                    tags: vec![],
+                    prefix: None,
+                    command: IrcCommand::Nick(self.nickname.to_string()),
+                })
+                .unwrap()
+                .as_bytes(),
+            )
+            .await?;
+        self.send
+            .lock()
+            .await
+            .as_mut()
+            .unwrap()
+            .write(
+                String::try_from(IrcMessage {
+                    tags: vec![],
+                    prefix: None,
+                    command: IrcCommand::User(self.username.to_string(), self.realname.to_string()),
+                })
+                .unwrap()
+                .as_bytes(),
+            )
+            .await?;
 
         loop {}
 
         Ok(())
+    }
+    pub async fn send_command(&self, command: IrcCommand) -> Result<(), std::io::Error> {
+        let message = IrcMessage {
+            tags: vec![],
+            prefix: None,
+            command,
+        };
+
+        let message_str = String::try_from(message)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+        let mut writer_lock = self.send.lock().await;
+        if let Some(writer) = writer_lock.as_mut() {
+            writer.write_all(message_str.as_bytes()).await?;
+            writer.flush().await?;
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Not connected",
+            ))
+        }
+    }
+
+    pub async fn send_privmsg(&self, target: &str, text: &str) -> Result<(), std::io::Error> {
+        let privmsg_cmd = IrcCommand::Generic(GenericIrcCommand {
+            command: GenericIrcCommandType::Text("PRIVMSG".to_string()),
+            params: vec![target.to_string()],
+            trailing: Some(text.to_string()),
+        });
+
+        self.send_command(privmsg_cmd).await
+    }
+
+    pub async fn send_notice(&self, target: &str, text: &str) -> Result<(), std::io::Error> {
+        let notice_cmd = IrcCommand::Generic(GenericIrcCommand {
+            command: GenericIrcCommandType::Text("NOTICE".to_string()),
+            params: vec![target.to_string()],
+            trailing: Some(text.to_string()),
+        });
+        self.send_command(notice_cmd).await
     }
 }
