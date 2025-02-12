@@ -479,21 +479,22 @@ impl Client {
     }
 
     pub async fn send_privmsg(&self, target: &str, text: &str) -> Result<(), std::io::Error> {
-        let privmsg_cmd = IrcCommand::Generic(GenericIrcCommand {
-            command: GenericIrcCommandType::Text("PRIVMSG".to_string()),
-            params: vec![target.to_string()],
-            trailing: Some(text.to_string()),
-        });
-
+        let privmsg_cmd = IrcCommand::Privmsg(target.to_string(), text.to_string());
         self.send_command(privmsg_cmd).await
     }
-
+    pub async fn send_mode(
+        &self,
+        target: &str,
+        mode: &str,
+        params: &[&str],
+    ) -> Result<(), std::io::Error> {
+        let mut mode_params = vec![mode.to_string()];
+        mode_params.extend(params.iter().map(|s| s.to_string()));
+        let mode_cmd = IrcCommand::Mode(target.to_string(), mode_params);
+        self.send_command(mode_cmd).await
+    }
     pub async fn send_notice(&self, target: &str, text: &str) -> Result<(), std::io::Error> {
-        let notice_cmd = IrcCommand::Generic(GenericIrcCommand {
-            command: GenericIrcCommandType::Text("NOTICE".to_string()),
-            params: vec![target.to_string()],
-            trailing: Some(text.to_string()),
-        });
+        let notice_cmd = IrcCommand::Notice(target.to_string(), text.to_string());
         self.send_command(notice_cmd).await
     }
 }
